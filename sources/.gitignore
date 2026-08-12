@@ -1,0 +1,7 @@
+build/
+build-*/
+*.pyc
+__pycache__/
+.venv/
+.west/
+compile_commands.json

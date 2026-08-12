@@ -1,0 +1,23 @@
+/*
+ * Move the Zephyr console from USART1 (CH340E / USB-C) to USART3.
+ *
+ * USART3 is PB10/PB11, brought out on the Grove connector J5 (2.0 mm) and the
+ * Qwiic connector J4 (1.0 mm), so any external USB-TTL adapter can be plugged
+ * straight in -- no solder-bridge rework, no CH340E involved.
+ *
+ * Wiring (connector pin 1 = GND, 2 = VCC, 3 = TX, 4 = RX):
+ *     adapter RX  <-  J4/J5 pin 3   (USART3_TX, PB10)
+ *     adapter TX  ->  J4/J5 pin 4   (USART3_RX, PB11)
+ *     adapter GND <-> J4/J5 pin 1
+ * Leave the adapter's VCC disconnected; the kit powers itself from USB-C.
+ *
+ * Build with:
+ *     tools/build.sh -p always -- -DEXTRA_DTC_OVERLAY_FILE=overlays/console-usart3.overlay
+ */
+
+/ {
+	chosen {
+		zephyr,console = &usart3;
+		zephyr,shell-uart = &usart3;
+	};
+};

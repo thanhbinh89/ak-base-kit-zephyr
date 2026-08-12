@@ -1,0 +1,301 @@
+/*
+ * Copyright (c) 2026 AK Embedded Base Kit Zephyr port
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * AK Embedded Base Kit v2.3 -- STM32L151CBT6A (LQFP48, 128K flash / 32K SRAM)
+ * See ../../../docs/SCHEMATIC.md for the full net-by-net hardware description.
+ */
+
+/dts-v1/;
+#include <st/l1/stm32l151Xb-a.dtsi>
+#include <st/l1/stm32l151c(6-8-b)txa-pinctrl.dtsi>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/i2c/i2c.h>
+#include <zephyr/dt-bindings/pwm/pwm.h>
+
+/ {
+	model = "AK Embedded Base Kit v2.3 (STM32L151CBT6A)";
+	compatible = "ak,ak-base-kit";
+
+	chosen {
+		zephyr,console = &usart1;
+		zephyr,shell-uart = &usart1;
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+		zephyr,display = &oled;
+		/* Only honoured when CONFIG_USE_DT_CODE_PARTITION=y; set that if
+		 * the application writes to storage_partition, so the linker
+		 * cannot grow the image into it.
+		 */
+		zephyr,code-partition = &slot0_partition;
+	};
+
+	leds: leds {
+		compatible = "gpio-leds";
+
+		/* D3 blue "LED Debug": +3V3 -> R10 1k -> D3 -> PB8 (sink) */
+		blue_led_dbg: led_dbg {
+			gpios = <&gpiob 8 GPIO_ACTIVE_LOW>;
+			label = "Debug LED (blue)";
+		};
+	};
+
+	pwmbuzzer: pwm-buzzer {
+		compatible = "pwm-leds";
+
+		/* L1 MLT-8530 via Q1 MMBT3904 NPN low-side, base from PB0 */
+		buzzer_pwm: buzzer_pwm {
+			pwms = <&pwm3 3 PWM_MSEC(1) PWM_POLARITY_NORMAL>;
+			label = "Buzzer";
+		};
+	};
+
+	gpio_keys {
+		compatible = "gpio-keys";
+		polling-mode;
+
+		/* S1..S3 TS-1102S: 10k pull-up + 100R series + 100nF, active low */
+		user_button_1: button_1 {
+			label = "SW1";
+			gpios = <&gpiob 3 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			zephyr,code = <INPUT_KEY_0>;
+		};
+
+		user_button_2: button_2 {
+			label = "SW2";
+			gpios = <&gpioc 13 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			zephyr,code = <INPUT_KEY_1>;
+		};
+
+		user_button_3: button_3 {
+			label = "SW3";
+			gpios = <&gpiob 4 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			zephyr,code = <INPUT_KEY_2>;
+		};
+	};
+
+	/*
+	 * The SSD1309 OLED hangs off PB12/PB13, which have no hardware I2C
+	 * alternate function on this part, so the bus has to be bit-banged.
+	 * R5/R6 (10k to +3V3) are the bus pull-ups.
+	 */
+	i2c_oled: i2c-oled {
+		compatible = "gpio-i2c";
+		status = "okay";
+		scl-gpios = <&gpiob 13 (GPIO_OPEN_DRAIN | GPIO_PULL_UP)>;
+		sda-gpios = <&gpiob 12 (GPIO_OPEN_DRAIN | GPIO_PULL_UP)>;
+		clock-frequency = <I2C_BITRATE_STANDARD>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		oled: ssd1309@3c {
+			compatible = "solomon,ssd1309";
+			status = "okay";
+			reg = <0x3c>;
+			width = <128>;
+			height = <64>;
+			segment-offset = <0>;
+			page-offset = <0>;
+			display-offset = <0>;
+			multiplex-ratio = <63>;
+			segment-remap;
+			com-invdir;
+			prechargep = <0x22>;
+			/* PA15 -> R41 0R -> LCD_RES, 10k pull-up to +3V3 */
+			reset-gpios = <&gpioa 15 GPIO_ACTIVE_LOW>;
+		};
+	};
+
+	aliases {
+		led0 = &blue_led_dbg;
+		sw0 = &user_button_1;
+		sw1 = &user_button_2;
+		sw2 = &user_button_3;
+		pwm-led0 = &buzzer_pwm;
+		buzzer = &buzzer_pwm;
+		rtc = &pcf85063a;
+		spi-flash0 = &nor_flash;
+		eeprom-0 = &eeprom;
+		watchdog0 = &iwdg;
+		die-temp0 = &die_temp;
+		volt-sensor0 = &vref;
+	};
+
+	zephyr,user {
+		/* U7 SP3485: DE (pin 3) and nRE (pin 2) are tied together */
+		rs485-dir-gpios = <&gpioa 1 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+/* ---------------------------------------------------------------- clocks */
+
+&clk_hse {
+	clock-frequency = <DT_FREQ_M(8)>;	/* X1, 8 MHz crystal on PH0/PH1 */
+	status = "okay";
+};
+
+&clk_lsi {
+	status = "okay";	/* no 32.768 kHz crystal fitted on the MCU */
+};
+
+&pll {
+	/* 8 MHz * 8 = 64 MHz VCO (<= 96 MHz, range 1), / 2 = 32 MHz SYSCLK */
+	mul = <8>;
+	div = <2>;
+	clocks = <&clk_hse>;
+	status = "okay";
+};
+
+&rcc {
+	clocks = <&pll>;
+	clock-frequency = <DT_FREQ_M(32)>;
+	ahb-prescaler = <1>;
+	apb1-prescaler = <1>;
+	apb2-prescaler = <1>;
+};
+
+/* ------------------------------------------------------------------ uart */
+
+/* Console: PA9/PA10 -> SB1/SB2 -> CH340E -> USB Type-C (J1) */
+&usart1 {
+	pinctrl-0 = <&usart1_tx_pa9 &usart1_rx_pa10>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	status = "okay";
+};
+
+/* RS-485: PA2/PA3 -> U7 SP3485 -> J9/J10/J11 (A/B) */
+&usart2 {
+	pinctrl-0 = <&usart2_tx_pa2 &usart2_rx_pa3>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	status = "okay";
+
+	modbus0: modbus-serial {
+		compatible = "zephyr,modbus-serial";
+		status = "disabled";
+		de-gpios = <&gpioa 1 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+/* Grove (J4/J5) + Qwiic UART3 breakout: PB10/PB11 */
+&usart3 {
+	pinctrl-0 = <&usart3_tx_pb10 &usart3_rx_pb11>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	status = "okay";
+};
+
+/* ------------------------------------------------------------------- i2c */
+
+/* On-board RTC + Grove (J7/J8) and Qwiic I2C. R3/R4 = 10k pull-ups. */
+&i2c1 {
+	pinctrl-0 = <&i2c1_scl_pb6 &i2c1_sda_pb7>;
+	pinctrl-names = "default";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+	status = "okay";
+
+	pcf85063a: pcf85063a@51 {
+		compatible = "nxp,pcf85063a";
+		status = "okay";
+		reg = <0x51>;
+	};
+};
+
+/* ------------------------------------------------------------------- spi */
+
+/*
+ * SPI1 is shared between the on-board NOR flash (CS = PB14) and the
+ * expansion header J6 (CS = PA4, for an optional W5500 / nRF24L01+).
+ * PA5 has a 22R series resistor (R2) in the SCK line.
+ */
+&spi1 {
+	pinctrl-0 = <&spi1_sck_pa5 &spi1_miso_pa6 &spi1_mosi_pa7>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpiob 14 GPIO_ACTIVE_LOW>,	/* U2 W25Q80 */
+		   <&gpioa 4 GPIO_ACTIVE_LOW>;	/* J6 expansion */
+	status = "okay";
+
+	nor_flash: w25q80@0 {
+		compatible = "jedec,spi-nor";
+		status = "okay";
+		reg = <0>;
+		spi-max-frequency = <16000000>;
+		jedec-id = [ef 40 14];
+		size = <DT_SIZE_M(8)>;	/* 8 Mbit = 1 MiB */
+		has-dpd;
+		t-enter-dpd = <3000>;
+		t-exit-dpd = <30000>;
+	};
+};
+
+/* ------------------------------------------------------------- timers/pwm */
+
+&timers3 {
+	st,prescaler = <31>;	/* 32 MHz / (31 + 1) = 1 MHz tick */
+	status = "okay";
+
+	pwm3: pwm {
+		pinctrl-0 = <&tim3_ch3_pb0>;
+		pinctrl-names = "default";
+		status = "okay";
+	};
+};
+
+/* ------------------------------------------------------------------- misc */
+
+&rtc {
+	clocks = <&rcc STM32_CLOCK(APB1, 28)>,
+		 <&rcc STM32_SRC_LSI RTC_SEL(2)>;
+	status = "okay";
+};
+
+&iwdg {
+	status = "okay";
+};
+
+&eeprom {
+	status = "okay";
+};
+
+&adc1 {
+	pinctrl-0 = <&adc_in0_pa0>;
+	pinctrl-names = "default";
+	st,adc-clock-source = "ASYNC";
+	st,adc-prescaler = <4>;
+	status = "okay";
+};
+
+&die_temp {
+	status = "okay";
+};
+
+&vref {
+	status = "okay";
+};
+
+&dma1 {
+	status = "okay";
+};
+
+/* --------------------------------------------------------- flash layout */
+
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		/* No bootloader: the application owns the first 120K. */
+		slot0_partition: partition@0 {
+			label = "image-0";
+			reg = <0x00000000 DT_SIZE_K(120)>;
+		};
+
+		storage_partition: partition@1e000 {
+			label = "storage";
+			reg = <0x0001e000 DT_SIZE_K(8)>;
+		};
+	};
+};

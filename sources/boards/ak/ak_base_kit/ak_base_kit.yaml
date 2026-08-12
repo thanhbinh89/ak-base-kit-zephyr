@@ -1,0 +1,24 @@
+identifier: ak_base_kit
+name: AK Embedded Base Kit v2.3 (STM32L151CBT6A)
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+ram: 32
+flash: 128
+supported:
+  - gpio
+  - uart
+  - i2c
+  - spi
+  - pwm
+  - adc
+  - counter
+  - rtc
+  - watchdog
+  - eeprom
+  - dma
+  - display
+  - spi_flash
+vendor: ak
