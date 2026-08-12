@@ -1,0 +1,6 @@
+boards:
+  - name: ak_base_kit
+    full_name: AK Embedded Base Kit v2.3 (STM32L151CBT6A)
+    vendor: ak
+    socs:
+      - name: stm32l151xba

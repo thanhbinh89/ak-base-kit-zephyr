@@ -1,0 +1,5 @@
+# AK Embedded Base Kit v2.3 (STM32L151CBT6A)
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_AK_BASE_KIT
+	select SOC_STM32L151XBA

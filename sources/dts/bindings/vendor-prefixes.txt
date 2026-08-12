@@ -1,0 +1,3 @@
+# Out-of-tree vendor prefixes for this project.
+# Format: <prefix><TAB><Vendor name>
+ak	AK Embedded
