@@ -8,4 +8,7 @@ list(APPEND ZEPHYR_EXTRA_MODULES "${CMAKE_CURRENT_SOURCE_DIR}/..")
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(ak_base_kit_app LANGUAGES C)
 
-target_sources(app PRIVATE src/main.c)
+target_sources(app PRIVATE
+  src/main.c
+  src/font.c        # single 10x16 CFB font, replaces Zephyr's 3 default fonts
+)

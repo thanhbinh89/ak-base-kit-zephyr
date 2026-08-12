@@ -54,7 +54,7 @@ source tools/env.sh
 west build -b ak_base_kit app
 ```
 
-Current footprint: **~55 KiB flash (42 %)**, **~11 KiB RAM (33 %)**.
+Current footprint: **43 404 B flash (33.1 %)**, **10 564 B RAM (32.2 %)**.
 
 ## Footprint analysis
 
@@ -88,14 +88,14 @@ the target.
 
 ### Where the bytes currently go
 
-ROM **55 292 B / 128 KiB (42.2 %)**, RAM **10 567 B / 32 KiB (32.2 %)**:
+ROM **43 404 B / 128 KiB (33.1 %)**, RAM **10 564 B / 32 KiB (32.2 %)**:
 
 | ROM | bytes | % image | |
 |-----|------:|--------:|---|
-| `subsys/fb` | 15 663 | 28.3 % | of which `cfb_fonts.c` **13 811** |
-| `drivers` | 19 024 | 34.4 % | i2c 3774, flash 2972, spi 2262, display 1870, rtc 1796, serial 1522, pwm 1112 |
-| `kernel` | 6 862 | 12.4 % | |
-| `arch/arm` | 1 630 | 2.9 % | |
+| `drivers` | 19 024 | 43.8 % | i2c 3774, flash 2972, spi 2262, display 1870, rtc 1796, serial 1522, pwm 1112 |
+| `kernel` | 6 862 | 15.8 % | |
+| `subsys/fb` | 3 764 | 8.7 % | `cfb.c` 1852 + our font 1912 |
+| `arch/arm` | 1 630 | 3.8 % | |
 
 | RAM | bytes | % | |
 |-----|------:|--:|---|
@@ -104,23 +104,37 @@ ROM **55 292 B / 128 KiB (42.2 %)**, RAM **10 567 B / 32 KiB (32.2 %)**:
 | `subsys/input` | 1 368 | 12.9 % | input thread stack + msgq |
 | `system_work_q.c` | 1 168 | 11.1 % | |
 
-**Biggest single win:** `cfb_fonts.c` is 25 % of the whole image, because
-`CONFIG_CHARACTER_FRAMEBUFFER_USE_DEFAULT_FONTS=y` links all three default
-fonts — `cfb_font_1016` (1900 B), `cfb_font_1524` (4275 B), `cfb_font_2032`
-(7600 B) — while the sample only ever draws with one.
+#### The font, and why it is not the default one
 
-It is all-or-nothing: setting that symbol to `n` without supplying a
-replacement fails the link on `ASSERT(SIZEOF(cfb_font_area) != 0)` in
-`subsys/fb/check_cfb_fonts.ld` (verified). To claim the space, generate one
-font into the app instead:
+Zephyr's `CONFIG_CHARACTER_FRAMEBUFFER_USE_DEFAULT_FONTS=y` links **all three**
+built-in sizes — `cfb_font_1016` (1900 B), `cfb_font_1524` (4275 B) and
+`cfb_font_2032` (7600 B), **13 811 B total**, a quarter of the original image —
+while the application only ever draws with one.
+
+Turning that symbol off on its own does not build: the link fails on
+`ASSERT(SIZEOF(cfb_font_area) != 0)` in `subsys/fb/check_cfb_fonts.ld`. A
+replacement font has to be supplied, so `app/src/font.c` carries a single
+generated 10x16 face (`app/src/cfb_font_ak_1016.h`, 1912 B), which fills the
+128x64 panel exactly 12 columns by 4 rows.
+
+Measured effect: **55 304 B → 43 404 B, i.e. 11 900 B (11.6 KiB) recovered**,
+taking flash use from 42.2 % to 33.1 %.
+
+To regenerate or change the face:
 
 ```bash
 $ZEPHYR_BASE/scripts/build/gen_cfb_font_header.py \
-    -i DroidSansMono.ttf -x 10 -y 16 -s 14 --center-x -o cfb_font_1016
+    -i /usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf \
+    -x 10 -y 16 -s 15 --center-x -n ak \
+    -o app/src/cfb_font_ak_1016.h
 ```
 
-Keeping only the 10x16 font takes 13 811 B down to ~1 912 B — roughly
-**11.6 KiB (21 % of the image)** back.
+The generator requires the face's own bounding box across all printable
+characters to match `-x`/`-y` **exactly**, so the point size is not a free
+parameter — DejaVu Sans Mono only measures 10x16 at 15 pt (at 14 pt it is 9 px
+wide and the script aborts). Another face will need a different `-s`, and
+possibly `--y-offset`. Do not pass `--hpack`: the SSD1309 path expects
+`CFB_FONT_MONO_VPACKED`, which is the generator's default.
 
 ## Flash and debug
 
