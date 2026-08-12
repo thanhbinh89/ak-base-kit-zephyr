@@ -14,6 +14,7 @@ sources/
 ├── app/                       application
 │   ├── CMakeLists.txt
 │   ├── prj.conf
+│   ├── overlays/              optional DT overlays (e.g. console on USART3)
 │   └── src/main.c             board bring-up firmware
 ├── boards/ak/ak_base_kit/     out-of-tree board port
 │   ├── ak_base_kit.dts        <- the hardware description
@@ -24,8 +25,10 @@ sources/
 ├── docs/SCHEMATIC.md          full transcription of the board schematic
 ├── dts/bindings/              out-of-tree DT bindings (vendor prefix)
 ├── zephyr/module.yml          declares board_root + dts_root
-└── tools/                     env.sh, build.sh
+└── tools/                     env.sh, build.sh, footprint.sh
 ```
+
+(`README.md` lives one level up, in the repository root.)
 
 `docs/SCHEMATIC.md` is the authoritative hardware reference — read it instead
 of re-converting `../board/schematic-ak-embedded-base-kit-version-3.pdf`.
@@ -52,6 +55,72 @@ west build -b ak_base_kit app
 ```
 
 Current footprint: **~55 KiB flash (42 %)**, **~11 KiB RAM (33 %)**.
+
+## Footprint analysis
+
+```bash
+tools/footprint.sh            # text reports + sunburst charts + HTML dashboard
+tools/footprint.sh --serve    # ...then serve it on http://127.0.0.1:8000
+```
+
+Everything lands in `build/`:
+
+| Artifact | What it is |
+|----------|------------|
+| `rom.json` / `ram.json` | machine-readable size tree (per file, per symbol) |
+| `rom-sunburst.html` / `ram-sunburst.html` | interactive plotly sunburst |
+| `dashboard/index.html` | memory treemap, Kconfig browser, devicetree browser, sysinit order, ELF stats |
+
+The underlying Zephyr targets, if you prefer to call them directly:
+
+```bash
+ninja -C build rom_report     # text tree to stdout, also writes rom.json
+ninja -C build ram_report
+ninja -C build rom_plot       # sunburst; opens a browser
+ninja -C build dashboard      # HTML dashboard; opens a browser
+ninja -C build puncover       # interactive web UI (needs: pip install puncover)
+```
+
+`dashboard` and `*_plot` open a browser themselves; `tools/footprint.sh` skips
+that and just writes the files, which is friendlier over SSH or in a VM.
+`puncover` is not installed in the workspace venv — `pip install puncover` adds
+the target.
+
+### Where the bytes currently go
+
+ROM **55 292 B / 128 KiB (42.2 %)**, RAM **10 567 B / 32 KiB (32.2 %)**:
+
+| ROM | bytes | % image | |
+|-----|------:|--------:|---|
+| `subsys/fb` | 15 663 | 28.3 % | of which `cfb_fonts.c` **13 811** |
+| `drivers` | 19 024 | 34.4 % | i2c 3774, flash 2972, spi 2262, display 1870, rtc 1796, serial 1522, pwm 1112 |
+| `kernel` | 6 862 | 12.4 % | |
+| `arch/arm` | 1 630 | 2.9 % | |
+
+| RAM | bytes | % | |
+|-----|------:|--:|---|
+| `kernel/init.c` | 4 609 | 43.6 % | thread stacks (main 2048 + idle + ISR) |
+| `kernel/mempool.c` | 2 136 | 20.2 % | `CONFIG_HEAP_MEM_POOL_SIZE=2048` |
+| `subsys/input` | 1 368 | 12.9 % | input thread stack + msgq |
+| `system_work_q.c` | 1 168 | 11.1 % | |
+
+**Biggest single win:** `cfb_fonts.c` is 25 % of the whole image, because
+`CONFIG_CHARACTER_FRAMEBUFFER_USE_DEFAULT_FONTS=y` links all three default
+fonts — `cfb_font_1016` (1900 B), `cfb_font_1524` (4275 B), `cfb_font_2032`
+(7600 B) — while the sample only ever draws with one.
+
+It is all-or-nothing: setting that symbol to `n` without supplying a
+replacement fails the link on `ASSERT(SIZEOF(cfb_font_area) != 0)` in
+`subsys/fb/check_cfb_fonts.ld` (verified). To claim the space, generate one
+font into the app instead:
+
+```bash
+$ZEPHYR_BASE/scripts/build/gen_cfb_font_header.py \
+    -i DroidSansMono.ttf -x 10 -y 16 -s 14 --center-x -o cfb_font_1016
+```
+
+Keeping only the 10x16 font takes 13 811 B down to ~1 912 B — roughly
+**11.6 KiB (21 % of the image)** back.
 
 ## Flash and debug
 
